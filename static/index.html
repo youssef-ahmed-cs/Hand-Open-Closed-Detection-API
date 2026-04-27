@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hand Open/Closed Detection</title>
+    <style>
+        body {
+            background: #121212;
+            color: #f3f4f6;
+            font-family: Inter, system-ui, sans-serif;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+        }
+
+        .card {
+            width: min(720px, 100%);
+            background: #1f2937;
+            border-radius: 24px;
+            box-shadow: 0 24px 80px rgba(0, 0, 0, 0.25);
+            overflow: hidden;
+        }
+
+        header {
+            padding: 32px 32px 20px;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: clamp(2rem, 2.5vw, 2.6rem);
+        }
+
+        p {
+            margin: 12px 0 0;
+            color: #a1a1aa;
+            line-height: 1.7;
+        }
+
+        .content {
+            padding: 0 32px 32px;
+        }
+
+        .upload-box {
+            margin-top: 24px;
+            display: grid;
+            gap: 16px;
+        }
+
+        .video-frame {
+            width: 100%;
+            max-height: 420px;
+            border-radius: 16px;
+            border: 1px solid #374151;
+            background: #000;
+            object-fit: cover;
+        }
+
+        .video-wrapper {
+            position: relative;
+            width: 100%;
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .overlay-canvas {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        button {
+            width: fit-content;
+            border: none;
+            border-radius: 12px;
+            background: #2563eb;
+            color: white;
+            padding: 14px 24px;
+            font-size: 1rem;
+            cursor: pointer;
+            transition: transform 0.2s ease, background 0.2s ease;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+            transform: translateY(-1px);
+        }
+
+        .preview {
+            position: relative;
+            display: grid;
+            gap: 12px;
+            margin-top: 16px;
+        }
+
+        .preview img,
+        .preview video {
+            width: 100%;
+            max-height: 400px;
+            object-fit: contain;
+            border-radius: 16px;
+            border: 1px solid #374151;
+        }
+
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            border-radius: 16px;
+            background: #111827;
+            border: 1px solid #374151;
+            min-height: 96px;
+        }
+
+        .status {
+            font-size: 1.35rem;
+            margin-bottom: 10px;
+        }
+
+        .note {
+            color: #9ca3af;
+            margin-top: 14px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <header>
+            <h1>Hand Open/Closed Detection</h1>
+            <p>Use your webcam to capture a hand and detect whether it is open or closed.</p>
+        </header>
+        <div class="content">
+            <div class="upload-box">
+                <button id="startCameraButton">Start Camera</button>
+                <button id="toggleDetectionButton">Start Live Detect</button>
+                <button id="stopCameraButton">Stop Camera</button>
+            </div>
+            <div class="preview" id="previewArea">
+                <div class="video-wrapper">
+                    <video id="cameraVideo" class="video-frame" autoplay muted playsinline></video>
+                    <canvas id="overlayCanvas" class="overlay-canvas"></canvas>
+                </div>
+            </div>
+            <div class="result" id="resultArea">
+                <div class="status">Camera not started.</div>
+                <div class="note">Click Start Camera to allow webcam access. Then click Start Live Detect to see
+                    open/closed status live.</div>
+            </div>
+        </div>
+    </div>
+    <script>
+        const startCameraButton = document.getElementById('startCameraButton');
+        const toggleDetectionButton = document.getElementById('toggleDetectionButton');
+        const stopCameraButton = document.getElementById('stopCameraButton');
+        const previewArea = document.getElementById('previewArea');
+        const resultArea = document.getElementById('resultArea');
+        const cameraVideo = document.getElementById('cameraVideo');
+        const overlayCanvas = document.getElementById('overlayCanvas');
+
+        let stream = null;
+        let detectionTimer = null;
+        let isDetecting = false;
+
+        const hiddenCanvas = document.createElement('canvas');
+        const hiddenCtx = hiddenCanvas.getContext('2d');
+        const overlayCtx = overlayCanvas.getContext('2d');
+
+        async function startCamera() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                cameraVideo.srcObject = stream;
+                await cameraVideo.play();
+
+                setStatus('Camera started. Position your hand in the frame.', 'Click Start Live Detect to see open / closed status in real time.');
+                startCameraButton.disabled = true;
+                stopCameraButton.disabled = false;
+                toggleDetectionButton.disabled = false;
+            } catch (error) {
+                setStatus('Camera access denied.', 'Allow webcam permission and retry.');
+            }
+        }
+
+        async function startLiveDetection() {
+            if (!stream) {
+                await startCamera();
+            }
+
+            if (isDetecting) {
+                stopLiveDetection();
+                return;
+            }
+
+            isDetecting = true;
+            toggleDetectionButton.textContent = 'Stop Live Detect';
+            setStatus('Live detection started.', 'The model is checking your hand every second.');
+            runDetectionFrame();
+            detectionTimer = window.setInterval(runDetectionFrame, 1000);
+        }
+
+        function stopLiveDetection() {
+            if (detectionTimer) {
+                clearInterval(detectionTimer);
+                detectionTimer = null;
+            }
+            isDetecting = false;
+            toggleDetectionButton.textContent = 'Start Live Detect';
+            setStatus('Live detection stopped.', 'You can restart it or stop the camera.');
+            clearOverlay();
+        }
+
+        async function stopCamera() {
+            stopLiveDetection();
+
+            if (stream) {
+                stream.getTracks().forEach((track) => track.stop());
+                stream = null;
+            }
+
+            cameraVideo.srcObject = null;
+            setStatus('Camera stopped.', 'Click Start Camera to open the webcam again.');
+            startCameraButton.disabled = false;
+            stopCameraButton.disabled = true;
+            toggleDetectionButton.disabled = true;
+            clearOverlay();
+        }
+
+        async function runDetectionFrame() {
+            if (!stream || !cameraVideo.videoWidth || !cameraVideo.videoHeight) {
+                return;
+            }
+
+            hiddenCanvas.width = cameraVideo.videoWidth;
+            hiddenCanvas.height = cameraVideo.videoHeight;
+            hiddenCtx.drawImage(cameraVideo, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+
+            const blob = await new Promise((resolve) => hiddenCanvas.toBlob(resolve, 'image/jpeg', 0.9));
+            if (!blob) {
+                setStatus('Capture failed.', 'Try again.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('image', blob, 'frame.jpg');
+
+            try {
+                const response = await fetch('/detect', {
+                    method: 'POST',
+                    body: formData,
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || 'Detection failed');
+                }
+
+                const data = await response.json();
+                updateResult(data);
+                drawOverlay(data.status);
+            } catch (error) {
+                setStatus('Live detection error.', error.message);
+            }
+        }
+
+        function updateResult(data) {
+            resultArea.innerHTML = `
+                <div class="status">${data.status}</div>
+                <div>Opened fingers: <strong>${data.opened_fingers}</strong></div>
+                <div>Finger tips detected: <strong>${data.finger_tips_detected || 0}</strong></div>
+            `;
+        }
+
+        function setStatus(message, note = '') {
+            resultArea.innerHTML = `
+                <div class="status">${message}</div>
+                ${note ? `<div class="note">${note}</div>` : ''}
+            `;
+        }
+
+        function drawOverlay(status) {
+            if (!cameraVideo.clientWidth || !cameraVideo.clientHeight) {
+                return;
+            }
+            overlayCanvas.width = cameraVideo.clientWidth;
+            overlayCanvas.height = cameraVideo.clientHeight;
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            overlayCtx.fillStyle = status.includes('Open') ? 'rgba(16, 185, 129, 0.35)' : status.includes('Closed') ? 'rgba(239, 68, 68, 0.35)' : 'rgba(59, 130, 246, 0.25)';
+            overlayCtx.fillRect(0, overlayCanvas.height - 60, overlayCanvas.width, 60);
+            overlayCtx.font = '22px Inter, system-ui, sans-serif';
+            overlayCtx.fillStyle = '#ffffff';
+            overlayCtx.textAlign = 'center';
+            overlayCtx.fillText(status, overlayCanvas.width / 2, overlayCanvas.height - 22);
+        }
+
+        function clearOverlay() {
+            overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        }
+
+        startCameraButton.addEventListener('click', startCamera);
+        toggleDetectionButton.addEventListener('click', startLiveDetection);
+        stopCameraButton.addEventListener('click', stopCamera);
+
+        window.addEventListener('beforeunload', stopCamera);
+    </script>
+</body>
+
+</html>
