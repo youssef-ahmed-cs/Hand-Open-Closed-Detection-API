@@ -1,4 +1,5 @@
 import io
+import os
 from pathlib import Path
 
 import cv2
@@ -95,3 +96,9 @@ def serve_frontend():
 @app.get("/health")
 def health_check():
     return {"message": "FastAPI Hand Open/Closed Detection is running."}
+
+
+if __name__ == "__main__":
+    import uvicorn # serve the app using uvicorn ASGI server
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
