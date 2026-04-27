@@ -15,9 +15,10 @@ app = FastAPI(
     title="Hand Open/Closed Detection API",
     description="Detects whether a hand is open or closed from an uploaded image using MediaPipe Hand Landmarker.",
     version="1.0.0",
+    docs_url=None,
+    openapi_url=None,
+    redoc_url=None,
 )
-
-app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 MODEL_PATH = Path(__file__).parent / "hand_landmarker.task"
 
@@ -90,13 +91,16 @@ async def detect_hand(image: UploadFile = File(...)):
 
 @app.get("/", response_class=FileResponse)
 def serve_frontend():
-    return Path(__file__).parent / "static" / "index.html"
-
+    return str(Path(__file__).parent / "static" / "index.html")
 
 
 @app.get("/health")
 def health_check():
     return {"message": "FastAPI Hand Open/Closed Detection is running."}
+
+
+# Mount static files after routes to avoid conflicts
+app.mount("/static", StaticFiles(directory=Path(__file__).parent / "static"), name="static")
 
 
 if __name__ == "__main__":
