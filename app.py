@@ -93,6 +93,7 @@ def serve_frontend():
     return Path(__file__).parent / "static" / "index.html"
 
 
+
 @app.get("/health")
 def health_check():
     return {"message": "FastAPI Hand Open/Closed Detection is running."}
