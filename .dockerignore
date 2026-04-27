@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+*.sqlite3
+*.log
+.venv/
+venv/
+node_modules/
+.git/
+.gitignore
+package-lock.json
+railway.json
+railway.toml
